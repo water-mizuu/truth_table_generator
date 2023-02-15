@@ -47,6 +47,11 @@ sealed class Proposition {
 
   @override
   String toString() => repr();
+
+  Proposition then(Proposition other) => Proposition.conditional(this, other);
+  Proposition operator &(Proposition other) => Proposition.and(this, other);
+  Proposition operator |(Proposition other) => Proposition.or(this, other);
+  Proposition operator ^(Proposition other) => Proposition.xor(this, other);
 }
 
 class VariableProposition extends Proposition {
