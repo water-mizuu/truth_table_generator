@@ -1,20 +1,23 @@
 import "dart:io";
+import "dart:math" as math;
 
 import "package:parser_combinator/parser_combinator.dart";
 
+import "decision.dart";
 import "node.dart";
 import "parse.dart";
 
-typedef Table = List<Row>;
+typedef Table = (List<Row> rows, Set<int> marks);
 typedef Row = Map<Proposition, bool>;
 
 extension on String {
   bool get isOnlyDashes {
-    List<String> chars = split("");
-    Set<String> unique = chars.toSet();
-    String joined = unique.join();
-
-    return joined == "-";
+    for (String c in split("")) {
+      if (c != "-") {
+        return false;
+      }
+    }
+    return true;
   }
 
   String padCenter(int count, [String padding = " "]) {
@@ -25,41 +28,55 @@ extension on String {
   }
 
   String unindent() {
-    RegExp emptySpace = RegExp(r"^\s+");
-
+    /// Removing the unnecessary right trailing line breaks
     List<String> lines = this.replaceAll("\r", "").trimRight().split("\n");
-    List<int> indentations = lines
-        .where((l) => l.isNotEmpty)
-        .map((l) => emptySpace.matchAsPrefix(l)?.end ?? 0)
+
+    List<int> existingIndentations = lines
+
+        /// To calculate the indentation, just get the length of the whole line
+        ///   subtracted by the length of the whole line with its left space trimmed.
+        ///
+        /// line := `  hello`
+        /// line_$trimmed := `hello`
+        ///
+        /// len(line) = 7
+        /// len(line_$trimmed) = 5
+        /// therefore indentation := 2
+        .map((l) => l.length - l.trimLeft().length)
+
+        /// Since we're looking for the minimal indentation,
+        ///   we must not include zero because min(a, 0) := 0.
+        .where((l) => l > 0)
         .toList();
-    
-    print(indentations);
-    if (indentations.isEmpty) {
+
+    /// If there are no indentations, then the string is empty / consists of purely newlines.
+    if (existingIndentations.isEmpty) {
       return this;
     }
 
-    int unindent = indentations.reduce((a, b) => a < b ? a : b);
-    String unindented = lines
-        .map((l) => l.isEmpty ? l : l.substring(unindent))
+    int commonIndentationLength = existingIndentations.reduce(math.min);
+    String unindented = lines //
+        /// If the line is empty, then just ignore it because the index, assuming
+        ///   [commonIndentationLength] > 0, will go out of bounds.
+        .map((l) => l.isEmpty ? l : l.substring(commonIndentationLength))
         .join("\n");
-    
+
     return unindented;
   }
 }
 
-String readLine() {
-  return stdin.readLineSync() ?? (throw Exception("Unable to read stdin."));
-}
+String readLine() => stdin.readLineSync() ?? (throw Exception("Unable to read stdin."));
 
 void main(List<String> args) {
   stdout.writeln("""
     Commands:
       `truth <proposition>`
         - Generates a truth table for the specified proposition.
-      
-      `arg <proposition1>; <proposition2>; ... <propositionN> => <proposition>`
+
+      `arg <proposition[0]>; <proposition[1]>; ... <proposition[N-1]> => <proposition>`
         - Shows the validity of the argument.
-    """.unindent());
+    """
+      .unindent());
   stdout.write("> ");
 
   String input = stdin.readLineSync() ?? (throw Exception("Unable to read stdin."));
@@ -69,10 +86,10 @@ void main(List<String> args) {
       switch (propositionParser.peg(textProposition)) {
         case Success<Proposition>(value: Proposition proposition):
           Iterable<VariableProposition> variables = proposition.variables();
-          Table table = generateTable(proposition);
+          Table table = generatePlainTable(proposition);
 
           String renderedTable = renderTable(table);
-          String decision = generateDecision(proposition, table);
+          Decision decision = generateDecision(proposition, table);
 
           stdout.writeln("Your proposition is: $proposition");
           stdout.writeln("The variables are: $variables");
@@ -80,11 +97,9 @@ void main(List<String> args) {
           stdout.writeln("The proposition is: $decision");
 
           break;
-        case Failure failure:
-          String message = failure.generateFailureMessage();
-
+        case Failure(:String failureMessage):
           stdout.writeln("Failure in parsing.");
-          stdout.writeln(message);
+          stdout.writeln(failureMessage);
 
           break;
         case Empty():
@@ -95,21 +110,31 @@ void main(List<String> args) {
     case Success(value: (Command.argument, String args)):
       switch (argumentParser.peg(args)) {
         case Success(value: (List<Proposition> premises, Proposition conclusion)):
-          Proposition left = premises.reduce((a, b) => a & b);
-          Proposition right = conclusion;
-          Proposition proposition = left.then(right);
+          LabeledProposition left = premises.reduce((a, b) => a & b).labeled("ℙ");
+          LabeledProposition right = conclusion.labeled("ℂ");
 
-          Table table = generateTable(proposition);
+          var (Table table && (List<Row> rows, Set<int> marks)) = generateMarkedTable(left, right);
           String renderedTable = renderTable(table);
-      
-          stdout.writeln("Your proposition is: $proposition");
-          stdout.writeln(renderedTable);
-          break;
-        case Failure failure:
-          String message = failure.generateFailureMessage();
 
+          stdout.writeln("Your proposition is: $left => $right");
+          stdout.writeln(renderedTable);
+
+          Iterable<Row> criticalRows = marks.map((y) => rows[y]).where((r) => r[left] ?? false);
+          Set<bool> results = criticalRows.map((r) => r[right] ?? false).toSet();
+
+          if (results.contains(false)) {
+            stdout.writeln("Due to the fact that there is a "
+                "false conclusion in the critical rows, "
+                "argument is not logically valid.");
+          } else {
+            stdout.writeln("Since there are no false conclusions, "
+                "the argument is logically valid.");
+          }
+
+          break;
+        case Failure(:String failureMessage):
           stdout.writeln("Failure in parsing.");
-          stdout.writeln(message);
+          stdout.writeln(failureMessage);
 
           break;
         case Empty():
@@ -130,15 +155,15 @@ void main(List<String> args) {
 
 /// Yields all the possible combinations of 0 and 1
 ///   of all the [variables].
-/// 
+///
 /// Should result in 2^n [Environment] objects where
 ///   n is the amount of variables.
 Iterable<Environment> generateEnvironments(List<VariableProposition> variables) sync* {
   if (variables.isEmpty) {
     yield {};
     return;
-  } 
-  
+  }
+
   var [VariableProposition first, ...List<VariableProposition> rest] = variables;
   for (Environment remaining in generateEnvironments(rest)) {
     yield {first: true, ...remaining};
@@ -154,36 +179,30 @@ Row generateRow(Proposition root, Environment environment) {
 
   return map;
 }
-  
-Table generateTable(Proposition root) {
-  Table table = [];
+
+Table generatePlainTable(Proposition root) {
   List<VariableProposition> variables = root.variables().toList();
-  Iterable<Environment> environments = generateEnvironments(variables);
+  List<Row> rows = generateEnvironments(variables).map((e) => generateRow(root, e)).toList();
 
-  for (Environment environment in environments) {
-    table.add(generateRow(root, environment));
-  }
-
-  return table;
+  return (rows, {});
 }
 
-String generateDecision(Proposition root, Table table) {
-  Set<bool> results = table.map((r) => r[root] ?? false).toSet();
+Table generateMarkedTable(LabeledProposition premise, LabeledProposition conclusion) {
+  // ignore: literal_only_boolean_expressions
+  List<VariableProposition> variables = premise.variables().union(conclusion.variables()).toList();
 
-  if (results.length == 1) {
-    if (results.contains(true)) {
-      return "Tautology";
-    } else {
-      return "Contradiction";
-    }
-  }
-  return "Contingent";
+  List<Row> rows =
+      generateEnvironments(variables).map((e) => {...generateRow(premise, e), ...generateRow(conclusion, e)}).toList();
+  Set<int> marks = List.generate(rows.length, (i) => i).where((y) => rows[y][premise] ?? false).toSet();
+
+  return (rows, marks);
 }
 
 String renderTable(Table table) {
   /// Takes the keys that are common between all the rows,
   ///   and sorts it by their comparison.
-  List<Proposition> keys = table //
+  var (List<Row> rows, Set<int> marks) = table;
+  List<Proposition> keys = rows //
       .map((row) => row.keys.toSet())
       .reduce((a, b) => a.intersection(b))
       .toList()
@@ -195,8 +214,12 @@ String renderTable(Table table) {
   /// This is the basic string matrix that will be used in
   ///   determining the maximum length of each column.
   List<List<String>> matrix = [
-    [for (Proposition repr in keys) repr.repr().parenthesize()],
-    for (Row row in table) [for (Proposition key in keys) (row[key] ?? false) ? "1" : "0"]
+    [for (Proposition repr in keys) repr.repr()],
+    for (Row row in rows)
+      [
+        for (Proposition key in keys)
+          if (row[key] ?? false) "1" else "0"
+      ]
   ];
 
   /// This contains all the maximum widths in each column.
@@ -212,12 +235,21 @@ String renderTable(Table table) {
   List<List<String>> paddedMatrix = [
     [for (int x = 0; x < width; ++x) matrix[0][x].padCenter(profile[x])],
     [for (int x = 0; x < width; ++x) "-" * profile[x]],
-    for (List<String> row in matrix.sublist(1)) //
-      [for (int x = 0; x < width; ++x) row[x].padCenter(profile[x])]
+    for (int y = 1; y < matrix.length; ++y) //
+      [for (int x = 0; x < width; ++x) matrix[y][x].padCenter(profile[x])]
   ];
 
   StringBuffer buffer = StringBuffer();
-  for (List<String> row in paddedMatrix) {
+  for (int y = 0; y < paddedMatrix.length; ++y) {
+    List<String> row = paddedMatrix[y];
+
+    if (marks.isNotEmpty) {
+      if (marks.contains(y - 2)) {
+        buffer.write("* ");
+      } else {
+        buffer.write("  ");
+      }
+    }
     for (int x = 0; x < width; ++x) {
       buffer.write(row[x]);
 

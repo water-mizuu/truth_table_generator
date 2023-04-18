@@ -6,7 +6,6 @@ analyzer:
     - value-class
     - extension-types
     - inference-update-2
-    - unnamed-libraries
     - patterns
     - sealed-class
   language:
