@@ -26,8 +26,8 @@ sealed class Proposition {
   Set<VariableProposition> variables() => _variables.toSet();
   Iterable<Proposition> traverse() sync* {
     Proposition root = this;
-    Set<Proposition> seen = {};
-    Queue<Proposition> queue = Queue()..add(root);
+    Set<Proposition> seen = <Proposition>{};
+    Queue<Proposition> queue = Queue<Proposition>()..add(root);
 
     while (queue.isNotEmpty) {
       Proposition latest = queue.removeFirst();
@@ -257,7 +257,8 @@ class XorProposition extends Proposition {
   @override
   bool operator ==(Object other) =>
       other is XorProposition &&
-      ((this.left == other.left && this.right == other.right) || (this.right == other.left && this.left == other.left));
+      ((this.left == other.left && this.right == other.right) || //
+          (this.right == other.left && this.left == other.left));
 
   @override
   int get hashCode => (left, "^^", right).hashCode;
@@ -419,7 +420,7 @@ class LabeledProposition extends Proposition {
   String repr() => "[$label] $child";
 
   @override
-  int get weight => child.weight * child.weight + label.codeUnits.reduce((a, b) => a + b);
+  int get weight => child.weight * child.weight + label.codeUnits.reduce((int a, int b) => a + b);
 
   @override
   bool operator ==(Object other) => (other is LabeledProposition && this.child == other.child) || this.child == other;

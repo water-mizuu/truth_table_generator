@@ -10,62 +10,7 @@ import "parse.dart";
 typedef Table = (List<Row> rows, Set<int> marks);
 typedef Row = Map<Proposition, bool>;
 
-extension on String {
-  bool get isOnlyDashes {
-    for (String c in split("")) {
-      if (c != "-") {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  String padCenter(int count, [String padding = " "]) {
-    int remaining = count - length;
-    int left = length + remaining ~/ 2;
-
-    return padLeft(left, padding).padRight(count, padding);
-  }
-
-  String unindent() {
-    /// Removing the unnecessary right trailing line breaks
-    List<String> lines = this.replaceAll("\r", "").trimRight().split("\n");
-
-    List<int> existingIndentations = lines
-
-        /// To calculate the indentation, just get the length of the whole line
-        ///   subtracted by the length of the whole line with its left space trimmed.
-        ///
-        /// line := `  hello`
-        /// line_$trimmed := `hello`
-        ///
-        /// len(line) = 7
-        /// len(line_$trimmed) = 5
-        /// therefore indentation := 2
-        .map((l) => l.length - l.trimLeft().length)
-
-        /// Since we're looking for the minimal indentation,
-        ///   we must not include zero because min(a, 0) := 0.
-        .where((l) => l > 0)
-        .toList();
-
-    /// If there are no indentations, then the string is empty / consists of purely newlines.
-    if (existingIndentations.isEmpty) {
-      return this;
-    }
-
-    int commonIndentationLength = existingIndentations.reduce(math.min);
-    String unindented = lines //
-        /// If the line is empty, then just ignore it because the index, assuming
-        ///   [commonIndentationLength] > 0, will go out of bounds.
-        .map((l) => l.isEmpty ? l : l.substring(commonIndentationLength))
-        .join("\n");
-
-    return unindented;
-  }
-}
-
-String readLine() => stdin.readLineSync() ?? (throw Exception("Unable to read stdin."));
+enum Color { red, blue, green }
 
 void main(List<String> args) {
   stdout.writeln("""
@@ -98,19 +43,19 @@ void main(List<String> args) {
 
           break;
         case Failure(:String failureMessage):
-          stdout.writeln("Failure in parsing.");
           stdout.writeln(failureMessage);
 
           break;
         case Empty():
-        default:
           break;
       }
       break;
     case Success(value: (Command.argument, String args)):
       switch (argumentParser.peg(args)) {
         case Success(value: (List<Proposition> premises, Proposition conclusion)):
-          LabeledProposition left = premises.reduce((a, b) => a & b).labeled("ℙ");
+          LabeledProposition left = premises //
+              .reduce((Proposition a, Proposition b) => a & b)
+              .labeled("ℙ");
           LabeledProposition right = conclusion.labeled("ℂ");
 
           var (Table table && (List<Row> rows, Set<int> marks)) = generateMarkedTable(left, right);
@@ -119,8 +64,13 @@ void main(List<String> args) {
           stdout.writeln("Your proposition is: $left => $right");
           stdout.writeln(renderedTable);
 
-          Iterable<Row> criticalRows = marks.map((y) => rows[y]).where((r) => r[left] ?? false);
-          Set<bool> results = criticalRows.map((r) => r[right] ?? false).toSet();
+          Iterable<Row> criticalRows = marks //
+              .map((int y) => rows[y])
+              .where((Row r) => r[left] ?? false);
+
+          Set<bool> results = criticalRows //
+              .map((Row r) => r[right] ?? false)
+              .toSet();
 
           if (results.contains(false)) {
             stdout.writeln("Due to the fact that there is a "
@@ -138,20 +88,75 @@ void main(List<String> args) {
 
           break;
         case Empty():
-        default:
           break;
       }
-    case Failure failure:
-      String message = failure.generateFailureMessage();
-
-      stdout.writeln(message);
+    case Failure(:String failureMessage):
+      stdout.writeln(failureMessage);
 
       break;
     case Empty():
-    default:
       break;
   }
 }
+
+extension on String {
+  bool get isOnlyDashes {
+    for (String c in split("")) {
+      if (c != "-") {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  String padCenter(int count, [String padding = " "]) {
+    int remaining = count - length;
+    int left = length + remaining ~/ 2;
+
+    return padLeft(left, padding).padRight(count, padding);
+  }
+
+  String unindent() {
+    /// Removing the unnecessary right trailing line breaks
+    List<String> lines = this.replaceAll("\r", "").trimRight().split("\n");
+
+    List<int> existingIndentations = lines
+
+        /// To calculate the indentation, just get the length of the whole line
+        ///   subtracted by the length of the whole line with its left space trimmed.
+        ///
+        /// line := `  hello`
+        /// line_$trimmed := `hello`
+        ///
+        /// len(line) = 7
+        /// len(line_$trimmed) = 5
+        /// therefore indentation := 2
+        .map((String l) => l.length - l.trimLeft().length)
+
+        /// Since we're looking for the minimal indentation,
+        ///   we must not include zero because min(a, 0) := 0.
+        .where((int l) => l > 0)
+        .toList();
+
+    /// If there are no indentations, then the string is empty / consists of purely newlines.
+    if (existingIndentations.isEmpty) {
+      return this;
+    }
+
+    /// Since at this point, [existingIndentations] should not be empty,
+    ///   we can call [reduce] without throwing.
+    int commonIndentationLength = existingIndentations.reduce(math.min);
+    String unindented = lines //
+        /// If the line is empty, then just ignore it because the index, assuming
+        ///   [commonIndentationLength] > 0, will go out of bounds.
+        .map((String l) => l.isEmpty ? l : l.substring(commonIndentationLength))
+        .join("\n");
+
+    return unindented;
+  }
+}
+
+String readLine() => stdin.readLineSync() ?? (throw Exception("Unable to read stdin."));
 
 /// Yields all the possible combinations of 0 and 1
 ///   of all the [variables].
@@ -160,40 +165,41 @@ void main(List<String> args) {
 ///   n is the amount of variables.
 Iterable<Environment> generateEnvironments(List<VariableProposition> variables) sync* {
   if (variables.isEmpty) {
-    yield {};
+    yield <Proposition, bool>{};
     return;
   }
 
   var [VariableProposition first, ...List<VariableProposition> rest] = variables;
   for (Environment remaining in generateEnvironments(rest)) {
-    yield {first: true, ...remaining};
-    yield {first: false, ...remaining};
+    yield <Proposition, bool>{first: true, ...remaining};
+    yield <Proposition, bool>{first: false, ...remaining};
   }
 }
 
 Row generateRow(Proposition root, Environment environment) {
-  Row map = {
-    for (Proposition proposition in root.traverse()) //
-      proposition: proposition.evaluate(environment),
-  };
+  Iterable<MapEntry<Proposition, bool>> definitions = root //
+      .traverse()
+      .map((Proposition p) => MapEntry<Proposition, bool>(p, p.evaluate(environment)));
 
-  return map;
+  return Row.fromEntries(definitions);
 }
 
 Table generatePlainTable(Proposition root) {
   List<VariableProposition> variables = root.variables().toList();
-  List<Row> rows = generateEnvironments(variables).map((e) => generateRow(root, e)).toList();
+  List<Row> rows = generateEnvironments(variables).map((Environment e) => generateRow(root, e)).toList();
 
-  return (rows, {});
+  return (rows, <int>{});
 }
 
 Table generateMarkedTable(LabeledProposition premise, LabeledProposition conclusion) {
-  // ignore: literal_only_boolean_expressions
   List<VariableProposition> variables = premise.variables().union(conclusion.variables()).toList();
 
-  List<Row> rows =
-      generateEnvironments(variables).map((e) => {...generateRow(premise, e), ...generateRow(conclusion, e)}).toList();
-  Set<int> marks = List.generate(rows.length, (i) => i).where((y) => rows[y][premise] ?? false).toSet();
+  List<Row> rows = generateEnvironments(variables) //
+      .map((Environment env) => <Proposition, bool>{...generateRow(premise, env), ...generateRow(conclusion, env)})
+      .toList();
+  Set<int> marks = List<int>.generate(rows.length, (int i) => i) //
+      .where((int y) => rows[y][premise] ?? false)
+      .toSet();
 
   return (rows, marks);
 }
@@ -203,40 +209,40 @@ String renderTable(Table table) {
   ///   and sorts it by their comparison.
   var (List<Row> rows, Set<int> marks) = table;
   List<Proposition> keys = rows //
-      .map((row) => row.keys.toSet())
-      .reduce((a, b) => a.intersection(b))
+      .map((Row row) => row.keys.toSet())
+      .reduce((Set<Proposition> a, Set<Proposition> b) => a.intersection(b))
       .toList()
-    ..sort((a, b) => a.weight - b.weight);
+    ..sort((Proposition a, Proposition b) => a.weight - b.weight);
 
   /// The table width.
   int width = keys.length;
 
   /// This is the basic string matrix that will be used in
   ///   determining the maximum length of each column.
-  List<List<String>> matrix = [
-    [for (Proposition repr in keys) repr.repr()],
+  List<List<String>> matrix = <List<String>>[
+    <String>[for (Proposition repr in keys) repr.repr()],
     for (Row row in rows)
-      [
+      <String>[
         for (Proposition key in keys)
           if (row[key] ?? false) "1" else "0"
       ]
   ];
 
   /// This contains all the maximum widths in each column.
-  List<int> profile = [
+  List<int> profile = <int>[
     for (int x = 0; x < width; ++x) //
       matrix //
-          .map((r) => r[x].length)
-          .reduce((a, b) => a > b ? a : b),
+          .map((List<String> r) => r[x].length)
+          .reduce((int a, int b) => a > b ? a : b),
   ];
 
   /// This is the final matrix that will be used in
   ///   rendering the table.
-  List<List<String>> paddedMatrix = [
-    [for (int x = 0; x < width; ++x) matrix[0][x].padCenter(profile[x])],
-    [for (int x = 0; x < width; ++x) "-" * profile[x]],
+  List<List<String>> paddedMatrix = <List<String>>[
+    <String>[for (int x = 0; x < width; ++x) matrix[0][x].padCenter(profile[x])],
+    <String>[for (int x = 0; x < width; ++x) "-" * profile[x]],
     for (int y = 1; y < matrix.length; ++y) //
-      [for (int x = 0; x < width; ++x) matrix[y][x].padCenter(profile[x])]
+      <String>[for (int x = 0; x < width; ++x) matrix[y][x].padCenter(profile[x])]
   ];
 
   StringBuffer buffer = StringBuffer();

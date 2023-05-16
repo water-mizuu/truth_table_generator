@@ -15,7 +15,9 @@ enum Decision {
 
 Decision generateDecision(Proposition root, Table table) {
   var (List<Row> rows, _) = table;
-  Set<bool> results = rows.map((r) => r[root] ?? false).toSet();
+  Set<bool> results = rows //
+      .map((Row row) => row[root] ?? false)
+      .toSet();
 
   if (results.length == 1) {
     if (results.contains(true)) {
